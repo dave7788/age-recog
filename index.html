@@ -1,0 +1,934 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgeVision — Age Group Classifier</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Inter:wght@300;400;500&display=swap');
+
+  :root {
+    --bg:        #0e0e10;
+    --surface:   #18181c;
+    --border:    #2a2a30;
+    --accent:    #a78bfa;
+    --accent2:   #7c3aed;
+    --young:     #34d399;
+    --mid:       #fbbf24;
+    --senior:    #f87171;
+    --text:      #f0f0f4;
+    --muted:     #6b6b78;
+    --radius:    16px;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    font-weight: 400;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── NOISE OVERLAY ── */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none; z-index: 0; opacity: 0.5;
+  }
+
+  /* ── GLOW ── */
+  .glow-orb {
+    position: fixed;
+    width: 600px; height: 600px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(124,58,237,0.12) 0%, transparent 70%);
+    top: -200px; left: -150px;
+    pointer-events: none; z-index: 0;
+  }
+
+  /* ── LAYOUT ── */
+  .container {
+    position: relative; z-index: 1;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 0 24px 80px;
+  }
+
+  /* ── HEADER ── */
+  header {
+    padding: 40px 0 56px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .logo {
+    display: flex; align-items: center; gap: 10px;
+  }
+  .logo-icon {
+    width: 36px; height: 36px;
+    background: linear-gradient(135deg, var(--accent2), var(--accent));
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+  }
+  .logo-text {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 20px;
+    letter-spacing: -0.5px;
+  }
+  .logo-text span { color: var(--accent); }
+
+  .status-pill {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 6px 14px;
+    border-radius: 99px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .status-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: #6b6b78;
+    transition: background 0.3s;
+  }
+  .status-dot.online { background: #34d399; box-shadow: 0 0 6px #34d39966; }
+  #status-text { transition: color 0.3s; }
+
+  /* ── HERO ── */
+  .hero {
+    text-align: center;
+    margin-bottom: 56px;
+  }
+  .hero-eyebrow {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 2.5px;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 18px;
+  }
+  .hero h1 {
+    font-family: 'Syne', sans-serif;
+    font-size: clamp(36px, 6vw, 58px);
+    font-weight: 800;
+    letter-spacing: -2px;
+    line-height: 1.05;
+    margin-bottom: 16px;
+  }
+  .hero h1 em {
+    font-style: normal;
+    background: linear-gradient(90deg, var(--accent), #c084fc);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .hero p {
+    color: var(--muted);
+    font-size: 16px;
+    line-height: 1.6;
+    max-width: 420px;
+    margin: 0 auto;
+  }
+
+  /* ── TABS ── */
+  .tabs {
+    display: flex;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 5px;
+    gap: 4px;
+    margin-bottom: 24px;
+  }
+  .tab-btn {
+    flex: 1;
+    padding: 10px 16px;
+    border-radius: 11px;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  .tab-btn.active {
+    background: var(--accent2);
+    color: #fff;
+    box-shadow: 0 4px 20px rgba(124,58,237,0.35);
+  }
+  .tab-btn:not(.active):hover { color: var(--text); background: var(--border); }
+
+  /* ── PANELS ── */
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  /* ── UPLOAD PANEL ── */
+  .drop-zone {
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 56px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.25s;
+    background: var(--surface);
+    position: relative;
+  }
+  .drop-zone:hover, .drop-zone.drag-over {
+    border-color: var(--accent);
+    background: rgba(167,139,250,0.05);
+  }
+  .drop-zone input[type="file"] {
+    position: absolute; inset: 0; opacity: 0; cursor: pointer;
+  }
+  .drop-icon {
+    width: 56px; height: 56px;
+    background: rgba(167,139,250,0.1);
+    border-radius: 16px;
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 16px;
+    font-size: 26px;
+  }
+  .drop-zone h3 {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 18px;
+    margin-bottom: 8px;
+  }
+  .drop-zone p { color: var(--muted); font-size: 14px; }
+  .drop-zone p span { color: var(--accent); }
+
+  /* ── PREVIEW + RESULT ── */
+  .result-area {
+    display: none;
+    margin-top: 20px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .result-area.visible { display: flex; }
+
+  .preview-col {
+    flex: 1;
+    position: relative;
+    min-height: 280px;
+    background: #111;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+  }
+  .preview-col img {
+    max-width: 100%; max-height: 320px;
+    object-fit: contain;
+  }
+
+  .result-col {
+    flex: 1;
+    padding: 28px;
+    display: flex; flex-direction: column; justify-content: center;
+  }
+
+  .result-label {
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .result-class {
+    font-family: 'Syne', sans-serif;
+    font-size: 32px;
+    font-weight: 800;
+    letter-spacing: -1px;
+    margin-bottom: 4px;
+  }
+  .result-class.young { color: var(--young); }
+  .result-class.mid   { color: var(--mid); }
+  .result-class.senior{ color: var(--senior); }
+
+  .result-sub {
+    color: var(--muted);
+    font-size: 13px;
+    margin-bottom: 28px;
+  }
+
+  /* ── CONFIDENCE BARS ── */
+  .conf-bars { display: flex; flex-direction: column; gap: 10px; }
+  .conf-row { display: flex; flex-direction: column; gap: 4px; }
+  .conf-header { display: flex; justify-content: space-between; font-size: 12px; }
+  .conf-name { color: var(--muted); }
+  .conf-pct  { font-weight: 500; }
+  .conf-track {
+    height: 6px;
+    background: var(--border);
+    border-radius: 99px;
+    overflow: hidden;
+  }
+  .conf-fill {
+    height: 100%;
+    border-radius: 99px;
+    transition: width 0.7s cubic-bezier(0.16,1,0.3,1);
+    width: 0%;
+  }
+  .conf-fill.young  { background: var(--young); }
+  .conf-fill.mid    { background: var(--mid); }
+  .conf-fill.senior { background: var(--senior); }
+
+  /* ── CAMERA PANEL ── */
+  .camera-wrap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .camera-viewport {
+    position: relative;
+    width: 100%;
+    padding-top: 56.25%;
+    background: #0a0a0c;
+  }
+  #video, #overlay-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%; height: 100%;
+    object-fit: cover;
+  }
+  #overlay-canvas { pointer-events: none; }
+
+  .camera-off-msg {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 12px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .camera-off-msg .cam-icon { font-size: 40px; opacity: 0.3; }
+
+  /* live badge */
+  .live-badge {
+    position: absolute;
+    top: 16px; left: 16px;
+    background: rgba(0,0,0,0.7);
+    border: 1px solid #ef444444;
+    backdrop-filter: blur(8px);
+    padding: 5px 12px;
+    border-radius: 99px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    display: none;
+    align-items: center; gap: 6px;
+    color: #f87171;
+  }
+  .live-badge.visible { display: flex; }
+  .live-dot {
+    width: 7px; height: 7px;
+    background: #ef4444;
+    border-radius: 50%;
+    animation: blink 1.2s ease-in-out infinite;
+  }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+
+  /* live result overlay */
+  .live-result {
+    position: absolute;
+    bottom: 16px; right: 16px;
+    background: rgba(0,0,0,0.75);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 18px;
+    display: none;
+    min-width: 180px;
+  }
+  .live-result.visible { display: block; }
+  .live-result-label { font-size: 10px; color: var(--muted); letter-spacing: 2px; text-transform: uppercase; margin-bottom: 4px; }
+  .live-result-class {
+    font-family: 'Syne', sans-serif;
+    font-size: 22px; font-weight: 800;
+    letter-spacing: -0.5px;
+    margin-bottom: 2px;
+  }
+  .live-conf { font-size: 12px; color: var(--muted); }
+
+  /* camera controls */
+  .camera-controls {
+    padding: 16px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border-top: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+
+  /* ── BUTTONS ── */
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 11px 22px;
+    border-radius: 10px;
+    border: none;
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn-primary {
+    background: var(--accent2);
+    color: #fff;
+  }
+  .btn-primary:hover { background: #6d28d9; transform: translateY(-1px); box-shadow: 0 6px 20px rgba(124,58,237,0.35); }
+  .btn-primary:active { transform: translateY(0); }
+
+  .btn-ghost {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+  .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+
+  .btn-danger {
+    background: rgba(239,68,68,0.12);
+    border: 1px solid rgba(239,68,68,0.25);
+    color: #f87171;
+  }
+  .btn-danger:hover { background: rgba(239,68,68,0.2); }
+
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important; }
+
+  .cam-info { margin-left: auto; font-size: 12px; color: var(--muted); }
+
+  /* ── LOADING SPINNER ── */
+  .spinner {
+    width: 18px; height: 18px;
+    border: 2px solid rgba(255,255,255,0.2);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    display: none;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── BACKEND SETUP NOTICE ── */
+  .setup-notice {
+    background: rgba(167,139,250,0.06);
+    border: 1px solid rgba(167,139,250,0.2);
+    border-radius: var(--radius);
+    padding: 20px 24px;
+    margin-bottom: 24px;
+  }
+  .setup-notice summary {
+    font-weight: 500;
+    font-size: 14px;
+    cursor: pointer;
+    list-style: none;
+    display: flex; align-items: center; gap: 8px;
+    color: var(--accent);
+  }
+  .setup-notice summary::after { content: '▸'; margin-left: auto; transition: transform 0.2s; }
+  details[open] .setup-notice summary::after { transform: rotate(90deg); }
+  .setup-steps {
+    margin-top: 16px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .setup-step {
+    display: flex; gap: 12px;
+    font-size: 13px; color: var(--muted); line-height: 1.5;
+  }
+  .step-num {
+    flex-shrink: 0;
+    width: 22px; height: 22px;
+    background: var(--accent2);
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700; color: #fff;
+  }
+  code {
+    background: rgba(255,255,255,0.07);
+    border: 1px solid var(--border);
+    padding: 2px 7px;
+    border-radius: 5px;
+    font-size: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--accent);
+    display: inline-block;
+    margin-top: 4px;
+  }
+  pre code {
+    display: block;
+    padding: 12px 16px;
+    margin-top: 8px;
+    white-space: pre;
+    overflow-x: auto;
+    line-height: 1.7;
+    color: #c4b5fd;
+  }
+
+  /* ── API URL INPUT ── */
+  .api-row {
+    display: flex; gap: 8px;
+    margin-bottom: 20px;
+  }
+  .api-input {
+    flex: 1;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 16px;
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .api-input:focus { border-color: var(--accent); }
+
+  /* ── ERROR ── */
+  .error-msg {
+    background: rgba(239,68,68,0.08);
+    border: 1px solid rgba(239,68,68,0.2);
+    color: #f87171;
+    padding: 12px 16px;
+    border-radius: 10px;
+    font-size: 13px;
+    margin-top: 12px;
+    display: none;
+  }
+  .error-msg.visible { display: block; }
+
+  /* ── FOOTER ── */
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 24px 0;
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 12px; color: var(--muted);
+    flex-wrap: wrap; gap: 8px;
+  }
+  footer a { color: var(--muted); text-decoration: none; }
+  footer a:hover { color: var(--accent); }
+
+  /* ── RESPONSIVE ── */
+  @media (max-width: 640px) {
+    .result-area { flex-direction: column; }
+    .preview-col { min-height: 200px; }
+    .hero h1 { letter-spacing: -1px; }
+    .tab-btn { font-size: 12px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="glow-orb"></div>
+
+<div class="container">
+
+  <!-- HEADER -->
+  <header>
+    <div class="logo">
+      <div class="logo-icon">🎂</div>
+      <div class="logo-text">Age<span>Vision</span></div>
+    </div>
+    <div class="status-pill">
+      <div class="status-dot" id="status-dot"></div>
+      <span id="status-text">Not connected</span>
+    </div>
+  </header>
+
+  <!-- HERO -->
+  <div class="hero">
+    <div class="hero-eyebrow">EfficientNetB0 · 3-Class · 7,375 faces</div>
+    <h1>Predict age group<br>from <em>any face</em></h1>
+    <p>Upload a photo or use your camera for real-time age group recognition — 0–20, 20–40, or 40+.</p>
+  </div>
+
+  <!-- API URL ROW -->
+  <div class="api-row">
+    <input class="api-input" id="api-url" type="text" value="http://localhost:5000" placeholder="Backend URL (e.g. http://localhost:5000)" />
+    <button class="btn btn-ghost" onclick="checkHealth()">Ping</button>
+  </div>
+
+  <!-- SETUP NOTICE -->
+  <details>
+    <div class="setup-notice">
+      <summary>⚙️ How to run the backend</summary>
+      <div class="setup-steps">
+        <div class="setup-step">
+          <div class="step-num">1</div>
+          <div>Install Flask & dependencies<br><code>pip install flask flask-cors torch torchvision pillow</code></div>
+        </div>
+        <div class="setup-step">
+          <div class="step-num">2</div>
+          <div>Save <code>app.py</code> alongside your model file <code>age_classifier_efficientnet.pth</code></div>
+        </div>
+        <div class="setup-step">
+          <div class="step-num">3</div>
+          <div>Run the server<br><code>python app.py</code></div>
+        </div>
+        <div class="setup-step">
+          <div class="step-num">4</div>
+          <div>Open this HTML in your browser and click <strong>Ping</strong> to verify connection.</div>
+        </div>
+      </div>
+    </div>
+  </details>
+
+  <!-- TABS -->
+  <div class="tabs" style="margin-top:20px">
+    <button class="tab-btn active" onclick="switchTab('upload', this)">
+      <span>📁</span> Upload Image
+    </button>
+    <button class="tab-btn" onclick="switchTab('camera', this)">
+      <span>📷</span> Live Camera
+    </button>
+  </div>
+
+  <!-- ── UPLOAD PANEL ── -->
+  <div class="panel active" id="panel-upload">
+    <div class="drop-zone" id="drop-zone"
+         ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)">
+      <input type="file" id="file-input" accept="image/*" onchange="onFileChange(event)" />
+      <div class="drop-icon">📸</div>
+      <h3>Drop your image here</h3>
+      <p>or <span>browse to upload</span> · JPG, PNG, JPEG</p>
+    </div>
+    <div class="error-msg" id="upload-error"></div>
+
+    <div class="result-area" id="result-area">
+      <div class="preview-col">
+        <img id="preview-img" src="" alt="Preview" />
+      </div>
+      <div class="result-col">
+        <div class="result-label">Predicted Age Group</div>
+        <div class="result-class" id="result-class">—</div>
+        <div class="result-sub" id="result-sub">—</div>
+
+        <div class="conf-bars">
+          <div class="conf-row">
+            <div class="conf-header">
+              <span class="conf-name">0 – 20</span>
+              <span class="conf-pct young" id="pct-young">—</span>
+            </div>
+            <div class="conf-track"><div class="conf-fill young" id="bar-young"></div></div>
+          </div>
+          <div class="conf-row">
+            <div class="conf-header">
+              <span class="conf-name">20 – 40</span>
+              <span class="conf-pct mid" id="pct-mid">—</span>
+            </div>
+            <div class="conf-track"><div class="conf-fill mid" id="bar-mid"></div></div>
+          </div>
+          <div class="conf-row">
+            <div class="conf-header">
+              <span class="conf-name">40 – 100</span>
+              <span class="conf-pct senior" id="pct-senior">—</span>
+            </div>
+            <div class="conf-track"><div class="conf-fill senior" id="bar-senior"></div></div>
+          </div>
+        </div>
+
+        <div style="margin-top:20px;display:flex;gap:8px">
+          <button class="btn btn-ghost" onclick="resetUpload()" style="font-size:13px">Try another</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── CAMERA PANEL ── -->
+  <div class="panel" id="panel-camera">
+    <div class="camera-wrap">
+      <div class="camera-viewport">
+        <div class="camera-off-msg" id="cam-off">
+          <div class="cam-icon">📷</div>
+          <div>Camera is off — click Start Camera to begin</div>
+        </div>
+        <video id="video" autoplay muted playsinline style="display:none"></video>
+        <canvas id="overlay-canvas" style="display:none"></canvas>
+        <div class="live-badge" id="live-badge"><div class="live-dot"></div>LIVE</div>
+        <div class="live-result" id="live-result">
+          <div class="live-result-label">Age Group</div>
+          <div class="live-result-class" id="live-class">—</div>
+          <div class="live-conf" id="live-conf">—</div>
+        </div>
+      </div>
+
+      <div class="camera-controls">
+        <button class="btn btn-primary" id="btn-start-cam" onclick="startCamera()">
+          <div class="spinner" id="cam-spinner"></div>
+          <span id="btn-cam-text">Start Camera</span>
+        </button>
+        <button class="btn btn-danger" id="btn-stop-cam" onclick="stopCamera()" style="display:none">
+          Stop
+        </button>
+        <button class="btn btn-ghost" id="btn-capture" onclick="captureFrame()" style="display:none">
+          📸 Capture & Predict
+        </button>
+        <div class="cam-info" id="cam-info"></div>
+      </div>
+    </div>
+    <div class="error-msg" id="camera-error"></div>
+  </div>
+
+  <footer>
+    <div>AgeVision · EfficientNetB0 · 3 age classes</div>
+    <div>Model trained on 7,375 face images</div>
+  </footer>
+
+</div><!-- /container -->
+
+<script>
+// ── Config ──────────────────────────────────────────────────
+let API_BASE = 'http://localhost:5000';
+const CLASS_INFO = {
+  '(0-20)':   { label: '0 – 20',   sub: 'Children & Teenagers', cls: 'young', key: 'young' },
+  '(20-40)':  { label: '20 – 40',  sub: 'Young Adults',         cls: 'mid',   key: 'mid'   },
+  '(40-100)': { label: '40 – 100', sub: 'Adults & Seniors',     cls: 'senior',key: 'senior'},
+};
+
+// ── Status ───────────────────────────────────────────────────
+function setStatus(online, text) {
+  document.getElementById('status-dot').className = 'status-dot' + (online ? ' online' : '');
+  document.getElementById('status-text').textContent = text;
+}
+
+async function checkHealth() {
+  API_BASE = document.getElementById('api-url').value.trim().replace(/\/$/, '');
+  setStatus(false, 'Checking…');
+  try {
+    const r = await fetch(API_BASE + '/health', { signal: AbortSignal.timeout(4000) });
+    if (r.ok) {
+      setStatus(true, 'Connected');
+    } else {
+      setStatus(false, 'Server error');
+    }
+  } catch {
+    setStatus(false, 'Cannot reach server');
+  }
+}
+
+// ── Tabs ─────────────────────────────────────────────────────
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('panel-' + name).classList.add('active');
+  if (name !== 'camera') stopCamera();
+}
+
+// ── Upload / Drop ────────────────────────────────────────────
+function onDragOver(e) { e.preventDefault(); document.getElementById('drop-zone').classList.add('drag-over'); }
+function onDragLeave()  { document.getElementById('drop-zone').classList.remove('drag-over'); }
+function onDrop(e) {
+  e.preventDefault();
+  document.getElementById('drop-zone').classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) handleFile(file);
+}
+function onFileChange(e) { if (e.target.files[0]) handleFile(e.target.files[0]); }
+
+function handleFile(file) {
+  if (!file.type.startsWith('image/')) {
+    showError('upload-error', 'Please upload an image file (JPG, PNG, etc.)');
+    return;
+  }
+  const url = URL.createObjectURL(file);
+  document.getElementById('preview-img').src = url;
+  document.getElementById('result-area').classList.add('visible');
+  hideError('upload-error');
+
+  // Reset bars
+  setResultUI(null);
+
+  // Send to API
+  predictFile(file);
+}
+
+async function predictFile(file) {
+  API_BASE = document.getElementById('api-url').value.trim().replace(/\/$/, '');
+  const fd = new FormData();
+  fd.append('file', file);
+  try {
+    const r = await fetch(API_BASE + '/predict', { method: 'POST', body: fd });
+    if (!r.ok) throw new Error('Server returned ' + r.status);
+    const data = await r.json();
+    setResultUI(data);
+  } catch (err) {
+    showError('upload-error', 'Prediction failed: ' + err.message + '. Is the backend running?');
+  }
+}
+
+function setResultUI(data) {
+  if (!data) {
+    document.getElementById('result-class').textContent = '—';
+    document.getElementById('result-class').className = 'result-class';
+    document.getElementById('result-sub').textContent = 'Waiting for prediction…';
+    ['young','mid','senior'].forEach(k => {
+      document.getElementById('bar-' + k).style.width = '0%';
+      document.getElementById('pct-' + k).textContent = '—';
+    });
+    return;
+  }
+
+  const info = CLASS_INFO[data.class] || { label: data.class, sub: '', cls: 'young', key: 'young' };
+  document.getElementById('result-class').textContent = info.label;
+  document.getElementById('result-class').className = 'result-class ' + info.cls;
+  document.getElementById('result-sub').textContent = info.sub + (data.confidence ? ` · ${(data.confidence*100).toFixed(1)}% confidence` : '');
+
+  const probs = data.probabilities || {};
+  const map = { young: '(0-20)', mid: '(20-40)', senior: '(40-100)' };
+  Object.entries(map).forEach(([k, classKey]) => {
+    const pct = ((probs[classKey] || 0) * 100).toFixed(1);
+    document.getElementById('bar-' + k).style.width = pct + '%';
+    document.getElementById('pct-' + k).textContent = pct + '%';
+  });
+}
+
+function resetUpload() {
+  document.getElementById('result-area').classList.remove('visible');
+  document.getElementById('file-input').value = '';
+  hideError('upload-error');
+}
+
+// ── Camera ───────────────────────────────────────────────────
+let stream = null;
+let liveInterval = null;
+let isLive = false;
+
+async function startCamera() {
+  document.getElementById('cam-spinner').style.display = 'block';
+  document.getElementById('btn-cam-text').textContent = 'Starting…';
+  document.getElementById('btn-start-cam').disabled = true;
+  hideError('camera-error');
+
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 640 }, audio: false });
+    const video = document.getElementById('video');
+    video.srcObject = stream;
+    video.style.display = 'block';
+    document.getElementById('overlay-canvas').style.display = 'block';
+    document.getElementById('cam-off').style.display = 'none';
+    document.getElementById('live-badge').classList.add('visible');
+    document.getElementById('btn-stop-cam').style.display = 'inline-flex';
+    document.getElementById('btn-capture').style.display = 'inline-flex';
+    document.getElementById('btn-start-cam').style.display = 'none';
+    isLive = true;
+
+    // Auto-predict every 1.5s
+    liveInterval = setInterval(livePredict, 1500);
+
+  } catch(err) {
+    showError('camera-error', 'Camera access denied or not available: ' + err.message);
+    document.getElementById('btn-start-cam').disabled = false;
+  }
+
+  document.getElementById('cam-spinner').style.display = 'none';
+  document.getElementById('btn-cam-text').textContent = 'Start Camera';
+}
+
+function stopCamera() {
+  isLive = false;
+  clearInterval(liveInterval);
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+  const video = document.getElementById('video');
+  video.style.display = 'none';
+  video.srcObject = null;
+  document.getElementById('overlay-canvas').style.display = 'none';
+  document.getElementById('cam-off').style.display = 'flex';
+  document.getElementById('live-badge').classList.remove('visible');
+  document.getElementById('live-result').classList.remove('visible');
+  document.getElementById('btn-stop-cam').style.display = 'none';
+  document.getElementById('btn-capture').style.display = 'none';
+  document.getElementById('btn-start-cam').style.display = 'inline-flex';
+  document.getElementById('btn-start-cam').disabled = false;
+  document.getElementById('cam-info').textContent = '';
+}
+
+function captureFrame() {
+  const video = document.getElementById('video');
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth || 640;
+  canvas.height = video.videoHeight || 480;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  canvas.toBlob(blob => { if (blob) predictBlob(blob); }, 'image/jpeg', 0.85);
+}
+
+let predicting = false;
+async function livePredict() {
+  if (predicting || !isLive) return;
+  predicting = true;
+  const video = document.getElementById('video');
+  if (!video.videoWidth) { predicting = false; return; }
+  const canvas = document.createElement('canvas');
+  canvas.width = 320; canvas.height = 240;
+  canvas.getContext('2d').drawImage(video, 0, 0, 320, 240);
+  canvas.toBlob(async blob => {
+    if (!blob) { predicting = false; return; }
+    await predictBlob(blob, true);
+    predicting = false;
+  }, 'image/jpeg', 0.7);
+}
+
+async function predictBlob(blob, isLiveCall = false) {
+  API_BASE = document.getElementById('api-url').value.trim().replace(/\/$/, '');
+  const fd = new FormData();
+  fd.append('file', blob, 'frame.jpg');
+  try {
+    const r = await fetch(API_BASE + '/predict', {
+      method: 'POST', body: fd,
+      signal: AbortSignal.timeout(3000)
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    updateLiveResult(data);
+    const now = new Date();
+    document.getElementById('cam-info').textContent = `Last prediction: ${now.toLocaleTimeString()}`;
+  } catch(err) {
+    if (isLiveCall) {
+      document.getElementById('cam-info').textContent = 'Backend not reachable';
+    } else {
+      showError('camera-error', 'Prediction failed: ' + err.message);
+    }
+  }
+}
+
+function updateLiveResult(data) {
+  const info = CLASS_INFO[data.class] || { label: data.class, sub: '', cls: 'young' };
+  const liveResult = document.getElementById('live-result');
+  const liveClass  = document.getElementById('live-class');
+  const liveConf   = document.getElementById('live-conf');
+
+  liveResult.classList.add('visible');
+  liveClass.textContent = info.label;
+  liveClass.className = 'live-result-class ' + info.cls;
+  liveConf.textContent = data.confidence ? `${(data.confidence*100).toFixed(1)}% confidence` : info.sub;
+}
+
+// ── Helpers ──────────────────────────────────────────────────
+function showError(id, msg) {
+  const el = document.getElementById(id);
+  el.textContent = msg; el.classList.add('visible');
+}
+function hideError(id) {
+  document.getElementById(id).classList.remove('visible');
+}
+
+// Initial ping on load
+window.addEventListener('load', checkHealth);
+</script>
+</body>
+</html>
